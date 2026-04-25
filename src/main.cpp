@@ -4,7 +4,6 @@
 #include <iostream>
 #include <algorithm>
 
-float square(float x);
 float vectorMagnitude(sf::Vector2f vec);
 sf::Vector2f unitVector(sf::Vector2f vec);
 float dotProduct(sf::Vector2f vec1, sf::Vector2f vec2);
@@ -42,6 +41,8 @@ struct Circle{
 		y = y + vy * dt;
 		vx = vx + ax * dt;
 		vy = vy + ay * dt;
+		vx *= 0.999f;
+		vy *= 0.999f;
 	}
 
 	void wallCollision(sf::RenderWindow& window, std::vector<std::vector<sf::Vector2f>> lines){
@@ -83,6 +84,8 @@ struct Rope{
 	Circle c2;
 	int ic1;
 	int ic2;
+	int ωC1 = 0;
+	int ωC2 = 0;
 	sf::RectangleShape connector;
 	sf::Vector2f c1Pos;
 	sf::Vector2f c2Pos;
@@ -91,15 +94,15 @@ struct Rope{
 	float length;
 
 	 Rope(sf::Vector2f c1Pos, sf::Vector2f c2Pos, float c1Radius, float c2Radius, float length)
-        : c1(c1Pos.x, c1Pos.y, 0, 0, 200, 480, 5, c1Radius),
-          c2(c2Pos.x, c2Pos.y, 0, 0, 200, 480, 10, c2Radius),
+        : c1(c1Pos.x, c1Pos.y, 0, 0, 0, 200, 5, c1Radius),
+          c2(c2Pos.x, c2Pos.y, 0, 0, 0, 200, 10, c2Radius),
           c1Pos(c1Pos),
           c2Pos(c2Pos),
           c1Radius(c1Radius),
           c2Radius(c2Radius),
           length(length) {
 
-		connector.setSize(sf::Vector2f(length, 20));
+		connector.setSize(sf::Vector2f(20, length));
 		connector.setOrigin({c1Radius * 0.5f, -c1Radius / 2});
 		connector.setFillColor(sf::Color::Red);
 		connector.setPosition(c1Pos);
@@ -117,12 +120,27 @@ struct Rope{
 		sf::Vector2f vecBetweenCircles = {circles[ic2].x - circles[ic1].x, circles[ic2].y - circles[ic1].y};
 		sf::Vector2f unitVec = unitVector(vecBetweenCircles);
 		float distance = vectorMagnitude(vecBetweenCircles);
-		float correction = (length - distance) / (float) 2;
+		if (distance == 0) return;
 
-		circles[ic1].x -= correction * unitVec.x;
-		circles[ic1].y -= correction * unitVec.y;
-		circles[ic2].x += correction * unitVec.x;
-		circles[ic2].y += correction * unitVec.y;
+		float correction = (length - distance) * 0.5f;
+		float totalMass = circles[ic1].mass + circles[ic2].mass;
+		float weightCircle1 = circles[ic2].mass / totalMass;
+		float weightCircle2 = circles[ic1].mass / totalMass;
+
+		circles[ic1].x -= correction * weightCircle1 * unitVec.x;
+		circles[ic1].y -= correction * weightCircle1 * unitVec.y;
+		circles[ic2].x += correction * weightCircle2 * unitVec.x;
+		circles[ic2].y += correction * weightCircle2 * unitVec.y;
+
+		float stiffness = 0.5f;
+		sf::Vector2f relVel = {circles[ic2].vx - circles[ic1].vx, circles[ic2].vy - circles[ic1].vy};
+		
+		sf::Vector2f velAlongRope = dotProduct(relVel, unitVec) * unitVec * stiffness;
+		circles[ic1].vx += velAlongRope.x * weightCircle1;
+		circles[ic1].vy += velAlongRope.y * weightCircle1;
+		circles[ic2].vx -= velAlongRope.x * weightCircle2;
+		circles[ic2].vy -= velAlongRope.y * weightCircle2;
+
 
 		connector.setPosition({circles[ic1].x, circles[ic1].y});
 		connector.setSize(sf::Vector2f(20, distance));
@@ -146,10 +164,10 @@ int main()
 	
 	// box
 	sf::ConvexShape polygon;
-	sf::Vector2f point0 = {400, 500};
-	sf::Vector2f point1 = {800, 100};
-	sf::Vector2f point2 = {1400, 500};
-	sf::Vector2f point3 = {1000, 900};
+	sf::Vector2f point0 = {300, 400};
+	sf::Vector2f point1 = {750, 50};
+	sf::Vector2f point2 = {1500, 400};
+	sf::Vector2f point3 = {1000, 1000};
 	polygon.setPointCount(4);
 	polygon.setPoint(0, point0);
 	polygon.setPoint(1, point1);
@@ -166,11 +184,11 @@ int main()
 	std::uniform_int_distribution<> distrib2(1, 10);
 
 	std::vector<Circle> circles;
+
 	/*
 	// circle
-	std::vector<Circle> circles;
 	for(int i = 0; i < 10; i++){
-		Circle circle(900 + distrib1(gen), 500 + distrib1(gen), distrib1(gen) * 5, distrib1(gen) * 5, 0, 980, distrib2(gen), 20);
+		Circle circle(900 + distrib1(gen), 500 + distrib1(gen), distrib1(gen) * 5, distrib1(gen) * 5, 0, 0, distrib2(gen), 20);
 		if(circle.mass < 5){circle.circle.setFillColor(sf::Color::Green);}
 		circles.push_back(circle);
 	}
@@ -178,18 +196,19 @@ int main()
 	
 	// rope
 	std::vector<Rope> ropes;
-	Rope rope1 = Rope({900, 500}, {1100, 500}, 20, 20, 50);
+	Rope rope1 = Rope({900, 500}, {950, 500}, 20, 20, 100);
 	rope1.addCircles(circles);
 	ropes.push_back(rope1);
 
-	Rope rope2 = Rope({800, 300}, {1000, 500}, 20, 20, 100);
+	/*
+	Rope rope2 = Rope({800, 300}, {850, 250}, 20, 20, 100);
 	rope2.addCircles(circles);
 	ropes.push_back(rope2);
 
-	Rope rope3 = Rope({700, 400}, {1100, 700}, 20, 20, 150);
+	Rope rope3 = Rope({700, 400}, {750, 450}, 20, 20, 150);
 	rope3.addCircles(circles);
 	ropes.push_back(rope3);
-	
+	*/
 
 
 	while (window.isOpen())
@@ -206,38 +225,37 @@ int main()
 
 		window.draw(polygon);
 		
-		for(Rope& rope : ropes){
-			window.draw(rope.connector);
+		
+
+		for(int i = 0; i < circles.size(); i++){
+			circles[i].update(dt);
+			circles[i].wallCollision(window, lines);
+			for(int j = i + 1; j < circles.size(); j++){
+				circleCollision(circles[i], circles[j]);
+			}
 		}
 
-		for(int i = 0; i < 5; i++){
+		for(int i = 0; i < 10; i++){
 			for(Rope& rope : ropes){
 				rope.correctLength(circles);
 			}
 		}
 
-		for(int i = 0; i < circles.size(); i++){
-			circles[i].update(dt);
-
-			circles[i].wallCollision(window, lines);
-			for(int j = i + 1; j < circles.size(); j++){
-				circleCollision(circles[i], circles[j]);
-			}
-			circles[i].draw(window);
+		for(Rope& rope : ropes){
+			window.draw(rope.connector);
 		}
-
 		
+		for(Circle& circle : circles){
+			circle.draw(window);
+		}
 		
 		window.display();
 	}
 }
 
 
-float square(float x){
-	return x * x;
-}
 float vectorMagnitude(sf::Vector2f vec){
-	return std::sqrt(square(vec.x) + square(vec.y));
+	return std::sqrt(vec.x * vec.x + vec.y * vec.y);
 }
 float distance(sf::Vector2f pos1, sf::Vector2f pos2){
 	return vectorMagnitude({pos2.x - pos1.x, pos2.y - pos1.y});
@@ -250,7 +268,8 @@ float dotProduct(sf::Vector2f vec1, sf::Vector2f vec2){
 	return vec1.x * vec2.x + vec1.y * vec2.y;
 }
 float vectorProjection(sf::Vector2f vec1, sf::Vector2f vec2){
-	return dotProduct(vec1, vec2) / square(vectorMagnitude(vec2)); // * vec2;
+	float magnitude = vectorMagnitude(vec2);
+	return dotProduct(vec1, vec2) / (magnitude * magnitude); // * vec2;
 }
 void circleCollision(Circle& circle1, Circle& circle2){
 	float dist = distance({circle1.x, circle1.y}, {circle2.x, circle2.y});
